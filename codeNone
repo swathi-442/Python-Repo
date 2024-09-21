@@ -1,0 +1,70 @@
+from flask import Flask, request, render_template
+from github import Github, GithubException
+import os
+import mimetypes
+
+app = Flask(__name__)
+
+def detect_language(code):
+    """Detect the programming language based on the code snippet."""
+    if code.startswith('class ') or 'def ' in code:
+        return 'python'
+    elif code.startswith('#include') or code.startswith('int main'):
+        return 'c'
+    elif code.startswith('public class'):
+        return 'java'
+    elif code.startswith('console.log') or code.startswith('function'):
+        return 'javascript'
+    elif code.startswith('<!DOCTYPE html'):
+        return 'html'
+    elif code.startswith('@import'):
+        return 'css'
+    # Add more language detection as needed
+    return 'unknown'
+
+def create_or_update_repo(username, token, language, code):
+    g = Github(token)
+    user = g.get_user()
+
+    repo_name = f"{language.capitalize()}-Repo"
+    try:
+        repo = user.get_repo(repo_name)
+        # If repo exists, find the next available filename
+        existing_files = [f.name for f in repo.get_contents("")]
+    except GithubException as e:
+        if e.status == 404:
+            repo = user.create_repo(repo_name)
+            existing_files = []
+        else:
+            print(f"Error: {e}")
+            return "Error creating repository."
+
+    # Prepare filename with incremental suffix
+    base_filename = f"code"
+    ext = mimetypes.guess_extension(language)
+    i = 1
+    filename = f"{base_filename}{ext}"
+    
+    while filename in existing_files:
+        filename = f"{base_filename}{i}{ext}"
+        i += 1
+
+    # Upload the code
+    repo.create_file(filename, "Add code snippet", code)
+    return f"Code successfully uploaded to {repo_name} as {filename}!"
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        username = request.form["username"]
+        token = request.form["token"]
+        code = request.form["code"]
+
+        language = detect_language(code)
+        result = create_or_update_repo(username, token, language, code)
+        return render_template("index.html", result=result)
+
+    return render_template("index.html")
+
+if __name__ == "__main__":
+    app.run(debug=True)
